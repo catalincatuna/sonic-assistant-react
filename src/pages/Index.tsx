@@ -1,11 +1,17 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import Header from '../components/Header';
 import RecordButton from '../components/RecordButton';
 import MessageList, { Message } from '../components/MessageList';
 import AudioWaveform from '../components/AudioWaveform';
 import { initializeRecorder, startRecording, stopRecording } from '../utils/audioRecorder';
-import { sendAudioToOpenAI } from '../utils/api';
+import { sendAudioToOpenAIWithSession } from '../utils/api';
+
+const config = {
+  apiBaseUrl: 'http://localhost:3000',
+  endpoints: {
+    session: '/session'
+  }
+};
 
 const Index = () => {
   const [messages, setMessages] = useState<Message[]>([
@@ -18,42 +24,77 @@ const Index = () => {
   ]);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const [isCallActive, setIsCallActive] = useState(false);
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [currentAudio, setCurrentAudio] = useState<string | null>(null);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const recordedAudioRef = useRef<HTMLAudioElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
 
-  // Initialize the MediaRecorder when component mounts
-  useEffect(() => {
-    const initialize = async () => {
-      try {
-        const recorder = await initializeRecorder();
-        mediaRecorderRef.current = recorder;
-      } catch (error) {
-        console.error('Failed to initialize recorder:', error);
-        // Show error message to user
-        addMessage('Failed to access microphone. Please check permissions and try again.', false);
-      }
-    };
+  const initializeCall = async () => {
+    try {
+      // Get an ephemeral key from your server
+      const tokenResponse = await fetch(`${config.apiBaseUrl}${config.endpoints.session}`);
+      const data = await tokenResponse.json();
+      const EPHEMERAL_KEY = data.client_secret.value;
 
-    initialize();
+      // Create a peer connection
+      const pc = new RTCPeerConnection();
+      pcRef.current = pc;
 
-    // Cleanup function to stop recording and release media stream
-    return () => {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-      
-      // Release the media stream
-      if (mediaRecorderRef.current) {
-        const stream = mediaRecorderRef.current.stream;
-        const tracks = stream.getTracks();
-        tracks.forEach(track => track.stop());
-      }
-    };
-  }, []);
+      // Set up to play remote audio from the model
+      const audioEl = document.createElement("audio");
+      audioEl.autoplay = true;
+      pc.ontrack = e => audioEl.srcObject = e.streams[0];
+
+      // Add local audio track for microphone input in the browser
+      const ms = await navigator.mediaDevices.getUserMedia({
+        audio: true
+      });
+      pc.addTrack(ms.getTracks()[0]);
+
+      // Set up data channel for sending and receiving events
+      const dc = pc.createDataChannel("oai-events");
+      dc.addEventListener("message", (e) => {
+        // Realtime server events appear here!
+        console.log(e);
+      });
+
+      // Start the session using the Session Description Protocol (SDP)
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const baseUrl = "https://api.openai.com/v1/realtime";
+      const model = "gpt-4o-realtime-preview-2024-12-17";
+      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${EPHEMERAL_KEY}`,
+          "Content-Type": "application/sdp"
+        },
+      });
+
+      await pc.setRemoteDescription({ type: 'answer', sdp: await sdpResponse.text() });
+      setIsCallActive(true);
+      addMessage('Call started successfully!', false);
+    } catch (error) {
+      console.error('Failed to initialize call:', error);
+      addMessage(`Failed to start call: ${error}`, false);
+    }
+  };
+
+  const stopCall = () => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+      setIsCallActive(false);
+      addMessage('Call ended.', false);
+    }
+  };
 
   // Format timestamp for messages
   const formatTimestamp = () => {
@@ -79,27 +120,19 @@ const Index = () => {
     if (isRecording) {
       setIsRecording(false);
       setIsProcessing(true);
-      
+
       try {
         // Stop recording and get the audio blob
         const audioBlob = await stopRecording(mediaRecorderRef.current);
-        
-        // Check if we have an actual audio blob with content
-        if (!audioBlob || audioBlob.size === 0) {
-          throw new Error('No audio recorded');
-        }
-        
-        // Check for API key
-        if (!apiKey) {
-          addMessage('Please enter your OpenAI API key in the field above to process audio.', false);
-          setIsProcessing(false);
-          return;
-        }
-        
+
+        // Create URL for the recorded audio
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudioUrl(audioUrl);
+
         // Add user message with "Transcribing..." text
         const userMessageId = Date.now().toString();
         setMessages(prev => [
-          ...prev, 
+          ...prev,
           {
             id: userMessageId,
             text: 'Transcribing...',
@@ -107,32 +140,32 @@ const Index = () => {
             timestamp: formatTimestamp()
           }
         ]);
-        
-        // Process the audio with OpenAI
-        const response = await sendAudioToOpenAI(audioBlob, apiKey);
-        
+
+        // Process the audio with OpenAI using session token
+        const response = await sendAudioToOpenAIWithSession(audioBlob);
+
         // Extract the user's transcribed text
         let userText = response.text;
         if (response.text.includes(':')) {
           // If there's a colon, take the first part as the user's speech
           userText = response.text.split(':')[0].trim();
         }
-        
+
         // Update the user message with transcribed text (replace "Transcribing...")
-        setMessages(prev => 
-          prev.map(msg => 
-            msg.id === userMessageId 
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === userMessageId
               ? { ...msg, text: userText }
               : msg
           )
         );
-        
+
         // Add assistant response
         addMessage(response.text, false);
-        
+
         // Set the audio URL for playback
         setCurrentAudio(response.audioUrl);
-        
+
         // Automatically play the response audio
         if (audioRef.current && response.audioUrl) {
           audioRef.current.src = response.audioUrl;
@@ -144,16 +177,16 @@ const Index = () => {
       } catch (error: any) {
         console.error('Error processing recording:', error);
         let errorMessage = 'Sorry, there was an error processing your voice. Please try again.';
-        
+
         // Provide more specific error messages
-        if (error.message.includes('API key')) {
-          errorMessage = 'Invalid OpenAI API key. Please check your key and try again.';
+        if (error.message.includes('session')) {
+          errorMessage = 'Failed to authenticate with the server. Please try again.';
         } else if (error.message.includes('No audio')) {
           errorMessage = 'No audio was captured. Please check your microphone and try again.';
         } else if (error.message.includes('network')) {
           errorMessage = 'Network error. Please check your internet connection and try again.';
         }
-        
+
         addMessage(errorMessage, false);
       } finally {
         setIsProcessing(false);
@@ -170,7 +203,7 @@ const Index = () => {
           return;
         }
       }
-      
+
       // Start recording
       setIsRecording(true);
       startRecording(mediaRecorderRef.current, setAudioChunks);
@@ -180,42 +213,55 @@ const Index = () => {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Header />
-      
-      {/* API Key Input */}
-      <div className="px-4 pt-20 pb-2">
-        <div className="relative">
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Enter your OpenAI API key"
-            className="w-full p-2 border border-gray-300 rounded-md text-sm pr-24"
-            disabled={isRecording || isProcessing}
-          />
-          {apiKey && (
-            <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-              Key Set
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">
-          Your API key is stored locally and never sent to our servers.
-        </p>
-      </div>
-      
+
       {/* Messages Container */}
-      <div className="flex-1 overflow-hidden mt-2 mb-24">
+      <div className="flex-1 overflow-hidden mt-20 mb-24 px-4">
         <MessageList messages={messages} />
       </div>
       
-      {/* Audio Element (hidden) */}
+      {/* Audio Elements (hidden) */}
       <audio ref={audioRef} className="hidden" controls />
+      <audio ref={recordedAudioRef} className="hidden" controls />
       
       {/* Recording UI */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 flex flex-col items-center">
         {isRecording && <AudioWaveform />}
         
-        <div className="flex items-center justify-center w-full">
+        {recordedAudioUrl && !isRecording && (
+          <div className="mb-4">
+            <button
+              onClick={() => {
+                if (recordedAudioRef.current) {
+                  recordedAudioRef.current.src = recordedAudioUrl;
+                  recordedAudioRef.current.play().catch(e => {
+                    console.error('Recorded audio playback error:', e);
+                  });
+                }
+              }}
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            >
+              Play Recording
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center justify-center w-full gap-4">
+          {!isCallActive ? (
+            <button
+              onClick={initializeCall}
+              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+            >
+              Start Call
+            </button>
+          ) : (
+            <button
+              onClick={stopCall}
+              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+            >
+              Stop Call
+            </button>
+          )}
+
           <RecordButton 
             isRecording={isRecording} 
             isProcessing={isProcessing}
