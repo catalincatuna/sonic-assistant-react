@@ -13,6 +13,9 @@ const config = {
   }
 };
 
+const SYSTEM_PROMPT =
+  "Esti un asistent care raspunde la intrebari legate de proprietatea urmatoare: The Episode - Jacuzzi Penthouses se află în Cluj-Napoca, la 15 minute de mers pe jos de EXPO Transilvania, și oferă WiFi gratuit, o terasă și parcare privată gratuită. Proprietatea se află la 3,3 km de Muzeul Etnografic al Transilvaniei și include vedere la oraș și la piscină.Acest apartament cu aer condiționat are 1 dormitor, un living, o bucătărie complet utilată, cu frigider și cafetieră, precum și 1 baie cu bideu și duș. Baia este dotată cu cadă cu hidromasaj și articole de toaletă gratuite. Există de asemenea prosoape și lenjerie de pat.Acest apartament oferă o cadă cu hidromasaj. The Episode - Jacuzzi Penthouses oferă un grătar.The Episode - Jacuzzi Penthouses se află la 3,8 km de Palatul Bánffy și la 4,8 km de Cluj Arena. Aeroportul Internaţional Avram Iancu Cluj se află la 4 km.Cuplurile apreciază în mod deosebit această locație. I-au dat scorul 9,8 pentru un sejur pentru 2 persoane.";
+
 const Index = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -38,6 +41,7 @@ const Index = () => {
     try {
       // Get an ephemeral key from your server
       const tokenResponse = await fetch(`${config.apiBaseUrl}${config.endpoints.session}`);
+      console.log("token is :" + tokenResponse);
       const data = await tokenResponse.json();
       const EPHEMERAL_KEY = data.client_secret.value;
 
@@ -74,7 +78,7 @@ const Index = () => {
         body: offer.sdp,
         headers: {
           Authorization: `Bearer ${EPHEMERAL_KEY}`,
-          "Content-Type": "application/sdp"
+          "Content-Type": "application/sdp",
         },
       });
 
@@ -249,9 +253,9 @@ const Index = () => {
           {!isCallActive ? (
             <button
               onClick={initializeCall}
-              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+              className="px-4 py-2 bg-gradient-to-r from-green-500 to-gray-400 text-white rounded-md hover:from-green-600 hover:to-gray-500 transition-colors"
             >
-              Start Call
+              Start Realtime Session
             </button>
           ) : (
             <button
