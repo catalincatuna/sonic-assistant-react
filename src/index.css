@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -133,5 +134,4 @@
   100% {
     transform: rotate(360deg);
   }
-}
 }
