@@ -1,4 +1,3 @@
-
 export interface RecorderState {
   mediaRecorder: MediaRecorder | null;
   audioChunks: Blob[];
@@ -6,13 +5,16 @@ export interface RecorderState {
   isRecording: boolean;
 }
 
-export const initializeRecorder = async (): Promise<MediaRecorder> => {
+export const initializeRecorder = async (): Promise<{
+  recorder: MediaRecorder;
+  stream: MediaStream;
+}> => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const options = { mimeType: 'audio/webm' };
-    return new MediaRecorder(stream, options);
+    const recorder = new MediaRecorder(stream);
+    return { recorder, stream };
   } catch (error) {
-    console.error('Error initializing recorder:', error);
+    console.error("Error initializing recorder:", error);
     throw error;
   }
 };
@@ -41,15 +43,15 @@ export const stopRecording = (
   mediaRecorder: MediaRecorder | null
 ): Promise<Blob> => {
   return new Promise((resolve, reject) => {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-      reject(new Error('MediaRecorder is not recording'));
+    if (!mediaRecorder || mediaRecorder.state === "inactive") {
+      reject(new Error("MediaRecorder is not recording"));
       return;
     }
 
     let recordedChunks: Blob[] = [];
 
     const originalDataHandler = mediaRecorder.ondataavailable;
-    
+
     // Set up new data handler to capture final chunk
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
@@ -61,9 +63,9 @@ export const stopRecording = (
     mediaRecorder.onstop = () => {
       // Restore original data handler
       mediaRecorder.ondataavailable = originalDataHandler;
-      
+
       // Create a single blob from all chunks
-      const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+      const audioBlob = new Blob(recordedChunks, { type: "audio/webm" });
       resolve(audioBlob);
     };
 
