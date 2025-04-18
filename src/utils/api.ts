@@ -1,3 +1,5 @@
+import { getSession } from "../services/RestCalls";
+
 // Function to convert blob to base64
 export const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -48,10 +50,7 @@ export const initializeRealtimeSession = async (
 }> => {
   try {
     // Get session token
-    const tokenResponse = await fetch(
-      `${config.apiBaseUrl}${config.endpoints.session}`
-    );
-    const data = await tokenResponse.json();
+    const data = await getSession();
     const EPHEMERAL_KEY = data.client_secret.value;
 
     const url = "wss://api.openai.com/v1/realtime?intent=transcription";

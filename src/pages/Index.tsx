@@ -3,18 +3,19 @@ import Header from '../components/Header';
 import RecordButton from '../components/RecordButton';
 import MessageList, { Message } from '../components/MessageList';
 import AudioWaveform from '../components/AudioWaveform';
+import IntroPage from '../components/IntroPage';
 import { initializeRecorder, startRecording, stopRecording } from '../utils/audioRecorder';
 import { initializeRealtimeSession } from '../utils/api';
 
-const config = {
-  apiBaseUrl: 'http://localhost:3000',
-  endpoints: {
-    session: '/session'
-  }
-};
+interface PropertyInfo {
+  name: string;
+  address: string;
+  description: string;
+}
 
 
 const Index = () => {
+  const [propertyInfo, setPropertyInfo] = useState<PropertyInfo | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -304,6 +305,16 @@ const Index = () => {
       cleanupConnection();
     };
   }, []);
+
+  const handlePropertySubmit = (info: PropertyInfo) => {
+    setPropertyInfo(info);
+    // Add a welcome message with property info
+    addMessage(`Welcome to ${info.name}! How can I help you today?`, false);
+  };
+
+  if (!propertyInfo) {
+    return <IntroPage onPropertySubmit={handlePropertySubmit} />;
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
