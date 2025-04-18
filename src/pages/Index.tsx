@@ -31,6 +31,7 @@ const Index = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Format timestamp for messages
@@ -47,7 +48,7 @@ const Index = () => {
         id: Date.now().toString(),
         text,
         isUser,
-        timestamp: formatTimestamp()
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]);
   };
@@ -70,10 +71,67 @@ const Index = () => {
       dcRef.current.close();
       dcRef.current = null;
     }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current = null;
     }
+
     setIsCallActive(false);
+    setIsRecording(false);
+    setIsProcessing(false);
+  };
+
+  // Message handler function
+  const handleMessage = (event: MessageEvent) => {
+    console.log("=== Message Event Received ===");
+
+    try {
+      const response = JSON.parse(event.data);
+      console.log("Parsed response:", response);
+
+      // Handle conversation end message
+      if (response.type === "response.done") {
+        if (response.response.output[0].type === "function_call") {
+          console.log("Parsed response:", response);
+          if (response.response.output[0].arguments == "{\"should_end\":true}") {
+            console.log("Received conversation end signal");
+            addMessage("Ending conversation...", false);
+
+            // Stop recording first
+            if (isRecording) {
+              setIsRecording(false);
+              setIsProcessing(false);
+            }
+
+            // Then clean up the connection
+            cleanupConnection();
+            return;
+          }
+        }
+      }
+
+      // Handle chatbot response
+      if (response.type === "conversation.item.input_audio_transcription.completed") {
+        console.log("Adding chatbot response to chat:", response.transcript);
+        addMessage(response.transcript, false);
+      }
+
+      // Handle user transcription
+      if (response.type === "response.audio_transcript.done") {
+        console.log("Adding user transcription to chat:", response.transcript);
+        addMessage(response.transcript, true);
+      }
+
+      // Handle audio response
+      if (response.audio) {
+      }
+    } catch (error) {
+      console.error('Error parsing message:', error);
+      console.error('Raw data that failed to parse:', event.data);
+    }
   };
 
   // Toggle recording state
@@ -86,9 +144,12 @@ const Index = () => {
         // Stop recording
         const audioBlob = await stopRecording(mediaRecorderRef.current);
 
-        // Send audio through data channel
+        // Send audio through data channel if it's open
         if (dcRef.current && dcRef.current.readyState === 'open') {
+          console.log("Sending audio through data channel");
           dcRef.current.send(audioBlob);
+        } else {
+          console.log("Data channel not ready, skipping audio send");
         }
 
         // Clean up resources
@@ -102,8 +163,8 @@ const Index = () => {
     } else {
       if (!isCallActive) {
         try {
-          // Initialize realtime session
-          const { pc, dc } = await initializeRealtimeSession();
+          // Initialize realtime session with message handler
+          const { pc, dc, ws } = await initializeRealtimeSession(handleMessage);
 
           // Set up connection state handling
           pc.onconnectionstatechange = () => {
@@ -121,33 +182,55 @@ const Index = () => {
             cleanupConnection();
           };
 
+          // Log data channel state changes
+          dc.onopen = () => {
+            console.log('Data channel opened in component');
+          };
+
           pcRef.current = pc;
           dcRef.current = dc;
+          wsRef.current = ws;
           setIsCallActive(true);
+
+          // Start recording after connection is established
+          if (!mediaRecorderRef.current) {
+            try {
+              const { recorder, stream } = await initializeRecorder();
+              mediaRecorderRef.current = recorder;
+              mediaStreamRef.current = stream;
+            } catch (error) {
+              console.error('Failed to initialize recorder:', error);
+              cleanupConnection();
+              return;
+            }
+          }
+
+          setIsRecording(true);
+          startRecording(mediaRecorderRef.current, (chunks) => {
+            // Handle audio chunks if needed
+          });
         } catch (error) {
           console.error('Failed to initialize session:', error);
           cleanupConnection();
           return;
         }
-      }
-
-      // Start recording
-      if (!mediaRecorderRef.current) {
-        try {
-          const { recorder, stream } = await initializeRecorder();
-          mediaRecorderRef.current = recorder;
-          mediaStreamRef.current = stream;
-        } catch (error) {
-          console.error('Failed to initialize recorder:', error);
-          cleanupConnection();
-          return;
+      } else {
+        // If call is already active, just start recording
+        if (!mediaRecorderRef.current) {
+          try {
+            const { recorder, stream } = await initializeRecorder();
+            mediaRecorderRef.current = recorder;
+            mediaStreamRef.current = stream;
+          } catch (error) {
+            console.error('Failed to initialize recorder:', error);
+            return;
+          }
         }
+        setIsRecording(true);
+        startRecording(mediaRecorderRef.current, (chunks) => {
+          // Handle audio chunks if needed
+        });
       }
-
-      setIsRecording(true);
-      startRecording(mediaRecorderRef.current, (chunks) => {
-        // Handle audio chunks if needed
-      });
     }
   };
 
