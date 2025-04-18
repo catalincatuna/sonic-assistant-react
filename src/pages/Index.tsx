@@ -26,6 +26,7 @@ const Index = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
+  const [reservation, setReservation] = useState<any>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -84,6 +85,45 @@ const Index = () => {
     setIsProcessing(false);
   };
 
+  // Function to send reservation data through data channel
+  const sendReservationData = () => {
+    try {
+
+
+      let event = {
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: `rezervare gasita
+                       nume: Catalin Catuna
+                       data: 18.04.2025`,
+            }
+          ]
+        },
+      };
+
+      dcRef.current.send(JSON.stringify(event));
+      console.log("Sent reservation data:", event);
+      let response = {
+        type: "response.create",
+        response: {
+          instructions: "te rog spune-i clientului ce rezervare ai gasit "
+        },
+      };
+
+      // WebRTC data channel and WebSocket both have .send()
+      dcRef.current.send(JSON.stringify(response));
+      console.log("Sent response:", response);
+
+    } catch (error) {
+      console.error("Error sending reservation data:", error);
+    }
+  };
+
   // Message handler function
   const handleMessage = (event: MessageEvent) => {
     console.log("=== Message Event Received ===");
@@ -97,18 +137,42 @@ const Index = () => {
         if (response.response.output[0].type === "function_call") {
           console.log("Parsed response:", response);
           if (response.response.output[0].arguments == "{\"should_end\":true}") {
+            let response = {
+              type: "response.create",
+              response: {
+                instructions: "te rog ia ti ramas bun de la client "
+              },
+            };
+
+            // WebRTC data channel and WebSocket both have .send()
+            dcRef.current.send(JSON.stringify(response));
+
+            console.log("Sent response:", response);
             console.log("Received conversation end signal");
-            addMessage("Ending conversation...", false);
+            addMessage("Conversatie incheiata...", false);
 
-            // Stop recording first
-            if (isRecording) {
-              setIsRecording(false);
-              setIsProcessing(false);
-            }
+            // Add 3 second delay before stopping
+            setTimeout(() => {
+              // Stop recording first
+              if (isRecording) {
+                setIsRecording(false);
+                setIsProcessing(false);
+              }
 
-            // Then clean up the connection
-            cleanupConnection();
+              // Then clean up the connection
+              cleanupConnection();
+            }, 5000);
+
             return;
+          }
+          else if (response.response.output[0].name === "get_reservation") {
+            console.log("Received get_reservation function call");
+            // Parse the arguments to get reservation data
+            const args = JSON.parse(response.response.output[0].arguments);
+            setReservation(args);
+            addMessage("Rezervare gasita...", false);
+            // Send the reservation data through the data channel
+            sendReservationData();
           }
         }
       }
