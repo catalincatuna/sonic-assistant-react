@@ -162,7 +162,7 @@ const Index = () => {
 
               // Then clean up the connection
               cleanupConnection();
-            }, 5000);
+            }, 4000);
 
             return;
           }
@@ -249,13 +249,25 @@ const Index = () => {
 
           // Log data channel state changes
           dc.onopen = () => {
-            console.log('Data channel opened in component');
+            console.log('Data channel opened in component');   
+            // Send welcome message
+            let response = {
+              type: "response.create",
+              response: {
+                instructions: "te rog spune-i buna ziua clientului, unde a sunat si ce poti face pentru el"
+              },
+            };
+
+            // WebRTC data channel and WebSocket both have .send()
+            dcRef.current.send(JSON.stringify(response));
           };
 
           pcRef.current = pc;
           dcRef.current = dc;
           wsRef.current = ws;
           setIsCallActive(true);
+
+
 
           // Start recording after connection is established
           if (!mediaRecorderRef.current) {
