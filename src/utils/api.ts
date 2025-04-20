@@ -1,5 +1,7 @@
 import { getSession } from "../services/RestCalls";
 
+const API_BASE_URL = "http://localhost:3000";
+
 // Function to convert blob to base64
 export const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -16,13 +18,6 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
-};
-
-const config = {
-  apiBaseUrl: "http://localhost:3000",
-  endpoints: {
-    session: "/session",
-  },
 };
 
 // Function to get session token from server
@@ -146,6 +141,37 @@ export const initializeRealtimeSession = async (
     return { pc, dc, ws };
   } catch (error) {
     console.error("Error initializing realtime session:", error);
+    throw error;
+  }
+};
+
+export const getVision = async (imageData: {
+  image_url: string;
+  prompt: string;
+}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/vision`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        image: imageData.image_url,
+        prompt: imageData.prompt,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Vision API error response:", errorText);
+      throw new Error(`Failed to process image: ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Error processing image:", error);
     throw error;
   }
 };
