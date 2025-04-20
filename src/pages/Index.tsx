@@ -148,11 +148,23 @@ const Index = () => {
       const response = JSON.parse(event.data);
       console.log("Parsed response:", response);
 
+      // Handle user transcription
+      if (response.type === "conversation.item.input_audio_transcription.completed") {
+        console.log("Adding user message:", response.transcript);
+        addMessage(response.transcript, true);
+      }
+
+      // Handle assistant response
+      if (response.type === "response.audio_transcript.done") {
+        console.log("Adding assistant message:", response.transcript);
+        addMessage(response.transcript, false);
+      }
+
       // Handle conversation end message
       if (response.type === "response.done") {
         if (response.response.output[0].type === "function_call") {
           console.log("Parsed response:", response);
-          if (response.response.output[0].arguments == "{\"should_end\":true}") {
+          if (response.response.output[0].arguments === "{\"should_end\":true}") {
             let response = {
               type: "response.create",
               response: {
@@ -165,14 +177,22 @@ const Index = () => {
 
             console.log("Sent response:", response);
             console.log("Received conversation end signal");
-            addMessage("Conversatie incheiata...", true);
+            addMessage("Conversatie incheiata...", false);
 
-            // Add 3 second delay before stopping
+            // Add delay before stopping to ensure all messages are processed
             setTimeout(() => {
               // Stop recording first
               if (isRecording) {
                 setIsRecording(false);
                 setIsProcessing(false);
+              }
+
+              // Save the conversation to history before cleanup
+              if (messages.length > 1) {
+                const conversationMessages = messages.filter(msg => msg.id !== "welcome");
+                if (conversationMessages.length > 0) {
+                  chatHistoryService.addSession(conversationMessages, propertyInfo?.name || 'Unknown Property');
+                }
               }
 
               // Then clean up the connection
@@ -193,20 +213,9 @@ const Index = () => {
         }
       }
 
-      // Handle user response
-      if (response.type === "conversation.item.input_audio_transcription.completed") {
-        console.log("Adding chatbot response to chat:", response.transcript);
-        addMessage(response.transcript, true);
-      }
-
-      // Handle agent transcription
-      if (response.type === "response.audio_transcript.done") {
-        console.log("Adding user transcription to chat:", response.transcript);
-        addMessage(response.transcript, false);
-      }
-
       // Handle audio response
       if (response.audio) {
+        // Handle audio if needed
       }
     } catch (error) {
       console.error('Error parsing message:', error);
