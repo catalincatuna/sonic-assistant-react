@@ -6,6 +6,9 @@ import AudioWaveform from '../components/AudioWaveform';
 import IntroPage from '../components/IntroPage';
 import { initializeRecorder, startRecording, stopRecording } from '../utils/audioRecorder';
 import { initializeRealtimeSession } from '../utils/api';
+import ChatHistorySidebar from '../components/ChatHistorySidebar';
+import { chatHistoryService } from '../services/ChatHistory';
+import { ChatSession } from '../services/ChatHistory';
 
 interface PropertyInfo {
   name: string;
@@ -28,6 +31,7 @@ const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCallActive, setIsCallActive] = useState(false);
   const [reservation, setReservation] = useState<any>(null);
+  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -44,15 +48,13 @@ const Index = () => {
 
   // Add a message to the chat
   const addMessage = (text: string, isUser: boolean) => {
-    setMessages(prev => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        text,
-        isUser,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-    ]);
+    const newMessage = {
+      id: Date.now().toString(),
+      text,
+      isUser,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setMessages(prev => [...prev, newMessage]);
   };
 
   // Clean up function
@@ -84,6 +86,19 @@ const Index = () => {
     setIsCallActive(false);
     setIsRecording(false);
     setIsProcessing(false);
+
+    // Save chat history when conversation ends
+    if (messages.length > 1) {
+      // Create a new array with all messages except the initial welcome message
+      const conversationMessages = messages.filter(msg => msg.id !== "welcome");
+      if (conversationMessages.length > 0) {
+        // Ensure we have a valid property name
+        const propertyName = propertyInfo?.name || 'Unknown Property';
+
+        // Save to chat history
+        chatHistoryService.addSession(conversationMessages, propertyName);
+      }
+    }
   };
 
   // Function to send reservation data through data channel
@@ -150,7 +165,7 @@ const Index = () => {
 
             console.log("Sent response:", response);
             console.log("Received conversation end signal");
-            addMessage("Conversatie incheiata...", false);
+            addMessage("Conversatie incheiata...", true);
 
             // Add 3 second delay before stopping
             setTimeout(() => {
@@ -178,16 +193,16 @@ const Index = () => {
         }
       }
 
-      // Handle chatbot response
+      // Handle user response
       if (response.type === "conversation.item.input_audio_transcription.completed") {
         console.log("Adding chatbot response to chat:", response.transcript);
-        addMessage(response.transcript, false);
+        addMessage(response.transcript, true);
       }
 
-      // Handle user transcription
+      // Handle agent transcription
       if (response.type === "response.audio_transcript.done") {
         console.log("Adding user transcription to chat:", response.transcript);
-        addMessage(response.transcript, true);
+        addMessage(response.transcript, false);
       }
 
       // Handle audio response
@@ -321,7 +336,50 @@ const Index = () => {
   const handlePropertySubmit = (info: PropertyInfo) => {
     setPropertyInfo(info);
     // Add a welcome message with property info
-    addMessage(`Welcome to ${info.name}! How can I help you today?`, false);
+    //addMessage(`Welcome to ${info.name}! How can I help you today?`, false);
+  };
+
+  // Add this function to handle session selection
+  const handleSessionSelect = (session: ChatSession) => {
+    setSelectedSession(session);
+    setMessages(session.messages);
+  };
+
+  const handleDownloadConversation = () => {
+    const sessions = chatHistoryService.getSessions();
+    if (sessions.length > 0) {
+      const logEntry = sessions.map(session => `
+Property: ${session.propertyName}
+Timestamp: ${new Date(session.timestamp).toLocaleString()}
+Messages:
+${session.messages
+          .map(
+            (msg) =>
+              `[${msg.timestamp}] ${msg.isUser ? "User" : "Assistant"}: ${msg.text}`
+          )
+          .join("\n")}
+----------------------------------------
+`).join("\n\n");
+
+      const blob = new Blob([logEntry], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `conversation_history_${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleNewChat = () => {
+    // Reset the messages to just the welcome message
+    setMessages([]);
+
+    // Clean up any active connections
+    cleanupConnection();
   };
 
   if (!propertyInfo) {
@@ -329,43 +387,61 @@ const Index = () => {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
-      <Header />
+    <div className="flex min-h-screen bg-gray-50">
+      <ChatHistorySidebar
+        onSelectSession={handleSessionSelect}
+        onNewChat={handleNewChat}
+      />
 
-      {/* Messages Container */}
-      <div className="flex-1 overflow-hidden mt-20 mb-24 px-4 relative">
-        <MessageList messages={messages} />
+      <div className="flex-1 flex flex-col min-h-screen">
+        <Header />
 
-        {/* Clear Chat Button */}
-        <button
-          onClick={() => setMessages([{
-            id: "welcome",
-            text: "Welcome to GPT-4o Voice Assistant! Click the microphone button to start a conversation.",
-            isUser: false,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }])}
-          className="absolute bottom-4 right-4 p-2 text-gray-500 hover:text-gray-700 transition-colors bg-white rounded-full shadow-sm"
-          title="Clear chat"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
-        </button>
-      </div>
-      
-      {/* Audio Elements (hidden) */}
-      <audio ref={audioRef} className="hidden" controls />
-      
-      {/* Recording UI */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 flex flex-col items-center">
-        {isRecording && <AudioWaveform />}
+        {/* Messages Container */}
+        <div className="flex-1 overflow-hidden mt-20 mb-24 px-4 relative">
+          <MessageList messages={messages} />
 
-        <div className="flex items-center justify-center w-full gap-4">
-          <RecordButton 
-            isRecording={isRecording} 
-            isProcessing={isProcessing}
-            toggleRecording={toggleRecording}
-          />
+          {/* Action Buttons */}
+          <div className="absolute bottom-4 right-4 flex gap-2">
+            <button
+              onClick={handleDownloadConversation}
+              className="p-2 text-gray-500 hover:text-gray-700 transition-colors bg-white rounded-full shadow-sm"
+              title="Download conversation"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setMessages([{
+                id: "welcome",
+                text: "Welcome to GPT-4o Voice Assistant! Click the microphone button to start a conversation.",
+                isUser: false,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }])}
+              className="p-2 text-gray-500 hover:text-gray-700 transition-colors bg-white rounded-full shadow-sm"
+              title="Clear chat"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Audio Elements (hidden) */}
+        <audio ref={audioRef} className="hidden" controls />
+
+        {/* Recording UI */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 flex flex-col items-center">
+          {isRecording && <AudioWaveform />}
+
+          <div className="flex items-center justify-center w-full gap-4">
+            <RecordButton
+              isRecording={isRecording}
+              isProcessing={isProcessing}
+              toggleRecording={toggleRecording}
+            />
+          </div>
         </div>
       </div>
     </div>
