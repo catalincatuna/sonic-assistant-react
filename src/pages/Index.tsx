@@ -4,8 +4,7 @@ import RecordButton from '../components/RecordButton';
 import MessageList, { Message } from '../components/MessageList';
 import AudioWaveform from '../components/AudioWaveform';
 import IntroPage from '../components/IntroPage';
-import { initializeRecorder, startRecording, stopRecording } from '../utils/audioRecorder';
-import { initializeRealtimeSession } from '../utils/api';
+import { initializeLocalRealtimeSession, initializeRealtimeSession } from '../utils/api';
 import ChatHistorySidebar from '../components/ChatHistorySidebar';
 import { chatHistoryService } from '../services/ChatHistory';
 import { ChatSession } from '../services/ChatHistory';
@@ -15,7 +14,6 @@ interface PropertyInfo {
   address: string;
   description: string;
 }
-
 
 const Index = () => {
   const [propertyInfo, setPropertyInfo] = useState<PropertyInfo | null>(null);
@@ -32,13 +30,11 @@ const Index = () => {
   const [isCallActive, setIsCallActive] = useState(false);
   const [reservation, setReservation] = useState<any>(null);
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
   const audioRef = useRef<HTMLAudioElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Format timestamp for messages
   const formatTimestamp = () => {
@@ -60,12 +56,7 @@ const Index = () => {
   // Clean up function
   const cleanupConnection = () => {
     // Stop all media tracks
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => {
-        track.stop();
-      });
-      mediaStreamRef.current = null;
-    }
+
 
     if (pcRef.current) {
       pcRef.current.close();
@@ -78,9 +69,6 @@ const Index = () => {
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
-    }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current = null;
     }
 
     setIsCallActive(false);
@@ -212,11 +200,6 @@ const Index = () => {
           }
         }
       }
-
-      // Handle audio response
-      if (response.audio) {
-        // Handle audio if needed
-      }
     } catch (error) {
       console.error('Error parsing message:', error);
       console.error('Raw data that failed to parse:', event.data);
@@ -231,16 +214,6 @@ const Index = () => {
 
       try {
         // Stop recording
-        const audioBlob = await stopRecording(mediaRecorderRef.current);
-
-        // Send audio through data channel if it's open
-        if (dcRef.current && dcRef.current.readyState === 'open') {
-          console.log("Sending audio through data channel");
-          dcRef.current.send(audioBlob);
-        } else {
-          console.log("Data channel not ready, skipping audio send");
-        }
-
         // Clean up resources
         cleanupConnection();
       } catch (error) {
@@ -252,8 +225,15 @@ const Index = () => {
     } else {
       if (!isCallActive) {
         try {
+          let pc: RTCPeerConnection;
+          let dc: RTCDataChannel;
+          let ws: WebSocket;
           // Initialize realtime session with message handler
-          const { pc, dc, ws } = await initializeRealtimeSession(handleMessage);
+          if (import.meta.env.VITE_BACKEND_URL === "http://192.168.1.131:3000") {
+            ({ pc, dc, ws } = await initializeLocalRealtimeSession(handleMessage));
+          } else {
+            ({ pc, dc, ws } = await initializeRealtimeSession(handleMessage));
+          }
 
           // Set up connection state handling
           pc.onconnectionstatechange = () => {
@@ -282,55 +262,21 @@ const Index = () => {
               },
             };
 
-            // WebRTC data channel and WebSocket both have .send()
-            dcRef.current.send(JSON.stringify(response));
+            dc.send(JSON.stringify(response));
           };
 
           pcRef.current = pc;
           dcRef.current = dc;
           wsRef.current = ws;
           setIsCallActive(true);
-
-
-
-          // Start recording after connection is established
-          if (!mediaRecorderRef.current) {
-            try {
-              const { recorder, stream } = await initializeRecorder();
-              mediaRecorderRef.current = recorder;
-              mediaStreamRef.current = stream;
-            } catch (error) {
-              console.error('Failed to initialize recorder:', error);
-              cleanupConnection();
-              return;
-            }
-          }
-
           setIsRecording(true);
-          startRecording(mediaRecorderRef.current, (chunks) => {
-            // Handle audio chunks if needed
-          });
         } catch (error) {
           console.error('Failed to initialize session:', error);
           cleanupConnection();
           return;
         }
       } else {
-        // If call is already active, just start recording
-        if (!mediaRecorderRef.current) {
-          try {
-            const { recorder, stream } = await initializeRecorder();
-            mediaRecorderRef.current = recorder;
-            mediaStreamRef.current = stream;
-          } catch (error) {
-            console.error('Failed to initialize recorder:', error);
-            return;
-          }
-        }
         setIsRecording(true);
-        startRecording(mediaRecorderRef.current, (chunks) => {
-          // Handle audio chunks if needed
-        });
       }
     }
   };

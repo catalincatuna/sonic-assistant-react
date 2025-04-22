@@ -145,6 +145,99 @@ export const initializeRealtimeSession = async (
   }
 };
 
+// Function to initialize realtime session with local server
+export const initializeLocalRealtimeSession = async (
+  onMessage?: (event: MessageEvent) => void
+): Promise<{
+  pc: RTCPeerConnection;
+  dc: RTCDataChannel;
+  ws: WebSocket;
+}> => {
+  try {
+    const url = new URL(`${API_BASE_URL}/start-stream`);
+
+    // Create WebSocket connection
+    const ws = new WebSocket(url);
+
+    // Wait for WebSocket to open
+    await new Promise((resolve, reject) => {
+      ws.onopen = () => {
+        console.log("WebSocket connected to local server");
+        resolve(true);
+      };
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+        reject(error);
+      };
+    });
+
+    // Create peer connection
+    const pc = new RTCPeerConnection();
+
+    // Set up audio handling for incoming audio
+    const audioEl = document.createElement("audio");
+    audioEl.autoplay = true;
+    pc.ontrack = (e) => {
+      console.log("Received audio track:", e);
+      audioEl.srcObject = e.streams[0];
+    };
+
+    // Get audio stream and add it to the connection
+    const audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+    });
+
+    audioStream.getTracks().forEach((track) => {
+      pc.addTrack(track, audioStream);
+    });
+
+    // Create data channel
+    const dc = pc.createDataChannel("local-events", {
+      ordered: true,
+    });
+
+    // Set up message handlers
+    // if (onMessage) {
+    //   dc.addEventListener("message", onMessage);
+    //   ws.onmessage = (event) => {
+    //     console.log("WebSocket message received:", event.data);
+    //     onMessage(event);
+    //   };
+    // }
+
+    // Create and set local description
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+    });
+    await pc.setLocalDescription(offer);
+
+    // Send offer to local server
+    ws.send(
+      JSON.stringify({
+        type: "offer",
+        sdp: offer.sdp,
+      })
+    );
+
+    // Wait for answer from server
+    const answer = await new Promise<RTCSessionDescriptionInit>((resolve) => {
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === "answer") {
+          resolve(message);
+        }
+      };
+    });
+
+    await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+    return { pc, dc, ws };
+  } catch (error) {
+    console.error("Error initializing local realtime session:", error);
+    throw error;
+  }
+};
+
 export const getVision = async (imageData: {
   image_url: string;
   prompt: string;

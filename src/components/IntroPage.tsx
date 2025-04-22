@@ -129,7 +129,7 @@ const IntroPage: React.FC<IntroPageProps> = ({ onPropertySubmit }) => {
         try {
             // Convert images to text and append to description
             const imageText = await convertImagesToText(images);
-            const updatedDescription = propertyInfo.description + (imageText ? '\n\n' + imageText : '');
+            const updatedDescription = propertyInfo.description + (imageText ? '\n\n Intrarea este: ' + imageText : '');
 
             const updatedPropertyInfo = {
                 ...propertyInfo,
