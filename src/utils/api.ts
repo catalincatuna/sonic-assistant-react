@@ -154,23 +154,6 @@ export const initializeLocalRealtimeSession = async (
   ws: WebSocket;
 }> => {
   try {
-    const url = new URL(`${API_BASE_URL}/start-stream`);
-
-    // Create WebSocket connection
-    const ws = new WebSocket(url);
-
-    // Wait for WebSocket to open
-    await new Promise((resolve, reject) => {
-      ws.onopen = () => {
-        console.log("WebSocket connected to local server");
-        resolve(true);
-      };
-      ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        reject(error);
-      };
-    });
-
     // Create peer connection
     const pc = new RTCPeerConnection();
 
@@ -196,14 +179,13 @@ export const initializeLocalRealtimeSession = async (
       ordered: true,
     });
 
-    // Set up message handlers
-    // if (onMessage) {
-    //   dc.addEventListener("message", onMessage);
-    //   ws.onmessage = (event) => {
-    //     console.log("WebSocket message received:", event.data);
-    //     onMessage(event);
-    //   };
-    // }
+    // Set up message handler for data channel
+    if (onMessage) {
+      dc.onmessage = (event) => {
+        console.log("Data channel message received:", event.data);
+        onMessage(event);
+      };
+    }
 
     // Create and set local description
     const offer = await pc.createOffer({
@@ -211,27 +193,35 @@ export const initializeLocalRealtimeSession = async (
     });
     await pc.setLocalDescription(offer);
 
-    // Send offer to local server
-    ws.send(
-      JSON.stringify({
+    // Send offer to local server via HTTP
+    const response = await fetch("http://192.168.1.131:3000/start-stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         type: "offer",
         sdp: offer.sdp,
-      })
-    );
-
-    // Wait for answer from server
-    const answer = await new Promise<RTCSessionDescriptionInit>((resolve) => {
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === "answer") {
-          resolve(message);
-        }
-      };
+      }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Failed to send offer: ${response.statusText}`);
+    }
+
+    const answer = await response.json();
+    if (answer.type !== "answer") {
+      throw new Error("Invalid answer received from server");
+    }
 
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
 
-    return { pc, dc, ws };
+    // Return the connection objects
+    return {
+      pc,
+      dc,
+      ws: null as unknown as WebSocket, // Keep the same return type but return null for ws
+    };
   } catch (error) {
     console.error("Error initializing local realtime session:", error);
     throw error;
