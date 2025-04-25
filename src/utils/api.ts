@@ -1,6 +1,6 @@
-import { getSession } from "../services/RestCalls";
+import { getCurrentSessionId, getSession } from "../services/RestCalls";
 
-const API_BASE_URL = "http://localhost:3000";
+const API_BASE_URL = "http://192.168.1.131:3000";
 
 // Function to convert blob to base64
 export const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -183,7 +183,7 @@ export const initializeLocalRealtimeSession = async (
     if (onMessage) {
       dc.onmessage = (event) => {
         console.log("Data channel message received:", event.data);
-        onMessage(event);
+        // onMessage(event);
       };
     }
 
@@ -193,15 +193,18 @@ export const initializeLocalRealtimeSession = async (
     });
     await pc.setLocalDescription(offer);
 
+    console.log("session id is :" + getCurrentSessionId());
+
     // Send offer to local server via HTTP
-    const response = await fetch("http://192.168.1.131:3000/start-stream", {
+    const response = await fetch(`${API_BASE_URL}/start-local-stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        type: "offer",
         sdp: offer.sdp,
+        type: "offer",
+        sessionId: getCurrentSessionId(),
       }),
     });
 
@@ -209,11 +212,17 @@ export const initializeLocalRealtimeSession = async (
       throw new Error(`Failed to send offer: ${response.statusText}`);
     }
 
-    const answer = await response.json();
-    if (answer.type !== "answer") {
-      throw new Error("Invalid answer received from server");
-    }
+    // Parse the response as JSON
+    const answerData = await response.json();
+    console.log("Received answer data:", answerData);
 
+    // Create a proper RTCSessionDescriptionInit object
+    const answer: RTCSessionDescriptionInit = {
+      type: "answer",
+      sdp: answerData.sdp,
+    };
+
+    console.log("Setting remote description with:", answer);
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
 
     // Return the connection objects

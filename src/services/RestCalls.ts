@@ -9,7 +9,7 @@ const generateSessionId = (): string => {
 };
 
 // Store sessionId in memory
-let currentSessionId: string = generateSessionId();
+const currentSessionId: string = generateSessionId();
 
 export const saveProperty = async (propertyInfo: PropertyInfo) => {
   try {

@@ -229,11 +229,14 @@ const Index = () => {
           let dc: RTCDataChannel;
           let ws: WebSocket;
           // Initialize realtime session with message handler
-          if (import.meta.env.VITE_BACKEND_URL === "http://192.168.1.131:3000") {
-            ({ pc, dc, ws } = await initializeLocalRealtimeSession(handleMessage));
-          } else {
-            ({ pc, dc, ws } = await initializeRealtimeSession(handleMessage));
-          }
+          // const env = process.env;
+          // if (env.VITE_BACKEND_URL === "http://192.168.1.131:3000") {
+          //   ({ pc, dc, ws } = await initializeLocalRealtimeSession(handleMessage));
+          // } else {
+          //   ({ pc, dc, ws } = await initializeRealtimeSession(handleMessage));
+          // }
+          ({ pc, dc, ws } = await initializeLocalRealtimeSession(handleMessage));
+
 
           // Set up connection state handling
           pc.onconnectionstatechange = () => {
