@@ -214,13 +214,22 @@ export const initializeLocalRealtimeSession = async (
 
     // Parse the response as JSON
     const answerData = await response.json();
-    console.log("Received answer data:", answerData);
+    console.log("Raw answer data:", answerData);
+    console.log("Answer data type:", typeof answerData);
+    console.log("Answer data keys:", Object.keys(answerData));
 
     // Create a proper RTCSessionDescriptionInit object
     const answer: RTCSessionDescriptionInit = {
       type: "answer",
-      sdp: answerData.sdp,
+      sdp: answerData.sdp || answerData.SDP || answerData, // Try different possible SDP field names
     };
+
+    console.log("Constructed answer object:", answer);
+    console.log("Answer SDP:", answer.sdp);
+
+    if (!answer.sdp) {
+      throw new Error("No SDP found in answer data");
+    }
 
     console.log("Setting remote description with:", answer);
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
