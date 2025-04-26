@@ -1,6 +1,7 @@
 import { getCurrentSessionId, getSession } from "../services/RestCalls";
 
-const API_BASE_URL = "http://192.168.1.131:3000";
+// const API_BASE_URL = "http://192.168.1.131:3000";
+const API_BASE_URL = "http://localhost:3000";
 
 // Function to convert blob to base64
 export const blobToBase64 = (blob: Blob): Promise<string> => {
@@ -212,27 +213,32 @@ export const initializeLocalRealtimeSession = async (
       throw new Error(`Failed to send offer: ${response.statusText}`);
     }
 
-    // Parse the response as JSON
-    const answerData = await response.json();
-    console.log("Raw answer data:", answerData);
-    console.log("Answer data type:", typeof answerData);
-    console.log("Answer data keys:", Object.keys(answerData));
+    // Get the raw response text first
+    const responseText = await response.text();
+    console.log("Raw response text:", responseText);
 
-    // Create a proper RTCSessionDescriptionInit object
-    const answer: RTCSessionDescriptionInit = {
-      type: "answer",
-      sdp: answerData.sdp || answerData.SDP || answerData, // Try different possible SDP field names
-    };
+    // Parse the JSON response
+    const answerData = JSON.parse(responseText);
+    console.log("Parsed answer data:", answerData);
 
-    console.log("Constructed answer object:", answer);
-    console.log("Answer SDP:", answer.sdp);
-
-    if (!answer.sdp) {
-      throw new Error("No SDP found in answer data");
+    // Ensure we have a valid SDP string
+    if (answerData.answer) {
+      // If the response is already an SDP string
+      const answer: RTCSessionDescriptionInit = {
+        type: "answer",
+        sdp: answerData.answer.sdp
+      };
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    } else if (typeof answerData === 'object' && answerData.sdp) {
+      // If the response is a JSON object with an sdp field
+      const answer: RTCSessionDescriptionInit = {
+        type: "answer",
+        sdp: answerData.sdp
+      };
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    } else {
+      throw new Error("Invalid SDP format received from server");
     }
-
-    console.log("Setting remote description with:", answer);
-    await pc.setRemoteDescription(new RTCSessionDescription(answer));
 
     // Return the connection objects
     return {
