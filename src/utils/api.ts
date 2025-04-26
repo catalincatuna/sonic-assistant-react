@@ -82,9 +82,19 @@ export const initializeRealtimeSession = async (
     // Set up audio handling for incoming audio
     const audioEl = document.createElement("audio");
     audioEl.autoplay = true;
-    pc.ontrack = (e) => {
-      console.log("Received audio track:", e);
-      audioEl.srcObject = e.streams[0];
+    audioEl.controls = true; // Add controls for debugging
+    document.body.appendChild(audioEl); // Add to document for testing
+
+    pc.ontrack = (event) => {
+      console.log("Received track:", event.track.kind);
+      if (event.track.kind === "audio") {
+        console.log("Setting audio source");
+        audioEl.srcObject = event.streams[0];
+        // Play the audio
+        audioEl.play().catch((error) => {
+          console.error("Error playing audio:", error);
+        });
+      }
     };
 
     // Get audio stream and add it to the connection
@@ -158,12 +168,32 @@ export const initializeLocalRealtimeSession = async (
     // Create peer connection
     const pc = new RTCPeerConnection();
 
+    // Create data channel
+    const dc = pc.createDataChannel("local-events", {
+      ordered: true,
+    });
+
     // Set up audio handling for incoming audio
     const audioEl = document.createElement("audio");
     audioEl.autoplay = true;
-    pc.ontrack = (e) => {
-      console.log("Received audio track:", e);
-      audioEl.srcObject = e.streams[0];
+    audioEl.controls = true; // Add controls for debugging
+    document.body.appendChild(audioEl); // Add to document for testing
+
+    pc.ontrack = (event) => {
+      console.log("Received track:", event.track.kind);
+      if (event.track.kind === "audio") {
+        console.log("Setting audio source");
+        audioEl.srcObject = event.streams[0];
+        // Play the audio
+        audioEl.play().catch((error) => {
+          console.error("Error playing audio:", error);
+        });
+      }
+    };
+
+    pc.ondatachannel = (event) => {
+      const dcc = event.channel; // This is the data channel created by the server
+      console.log("Received data channel:", dcc.label);
     };
 
     // Get audio stream and add it to the connection
@@ -175,18 +205,46 @@ export const initializeLocalRealtimeSession = async (
       pc.addTrack(track, audioStream);
     });
 
-    // Create data channel
-    const dc = pc.createDataChannel("local-events", {
-      ordered: true,
-    });
+    /// add listeners
 
     // Set up message handler for data channel
     if (onMessage) {
-      dc.onmessage = (event) => {
+      console.log("Adding message handler to data channel");
+      dc.addEventListener("message", (event) => {
         console.log("Data channel message received:", event.data);
-        // onMessage(event);
-      };
+      });
+
+      // dc.onmessage = (event) => {
+      //   console.log("Data channel message received:", event.data);
+      //   onMessage(event);
+      // };
     }
+
+    // Set up data channel open handler
+    dc.onopen = () => {
+      console.log("Data channel opened");
+      // Send test message
+      const testMessage = {
+        type: "test",
+        message: "Hello from client! Local session initialized successfully.",
+        timestamp: new Date().toISOString(),
+      };
+      dc.send(JSON.stringify(testMessage));
+      console.log("Sent test message:", testMessage);
+    };
+
+    // Set up connection state handling
+    pc.onconnectionstatechange = () => {
+      console.log("Connection state changed:", pc.connectionState);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE connection state changed:", pc.iceConnectionState);
+    };
+
+    pc.onsignalingstatechange = () => {
+      console.log("Signaling state changed:", pc.signalingState);
+    };
 
     // Create and set local description
     const offer = await pc.createOffer({
@@ -215,25 +273,23 @@ export const initializeLocalRealtimeSession = async (
 
     // Get the raw response text first
     const responseText = await response.text();
-    console.log("Raw response text:", responseText);
 
     // Parse the JSON response
     const answerData = JSON.parse(responseText);
-    console.log("Parsed answer data:", answerData);
 
     // Ensure we have a valid SDP string
     if (answerData.answer) {
       // If the response is already an SDP string
       const answer: RTCSessionDescriptionInit = {
         type: "answer",
-        sdp: answerData.answer.sdp
+        sdp: answerData.answer.sdp,
       };
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    } else if (typeof answerData === 'object' && answerData.sdp) {
+    } else if (typeof answerData === "object" && answerData.sdp) {
       // If the response is a JSON object with an sdp field
       const answer: RTCSessionDescriptionInit = {
         type: "answer",
-        sdp: answerData.sdp
+        sdp: answerData.sdp,
       };
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
     } else {

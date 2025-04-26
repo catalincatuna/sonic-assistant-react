@@ -255,18 +255,18 @@ const Index = () => {
           };
 
           // Log data channel state changes
-          dc.onopen = () => {
-            console.log('Data channel opened in component');   
-            // Send welcome message
-            let response = {
-              type: "response.create",
-              response: {
-                instructions: "te rog spune-i buna ziua clientului, unde a sunat si ce poti face pentru el"
-              },
-            };
+          // dc.onopen = () => {
+          //   console.log('Data channel opened in component');   
+          //   // Send welcome message
+          //   let response = {
+          //     type: "response.create",
+          //     response: {
+          //       instructions: "te rog spune-i buna ziua clientului, unde a sunat si ce poti face pentru el"
+          //     },
+          //   };
 
-            dc.send(JSON.stringify(response));
-          };
+          //   dc.send(JSON.stringify(response));
+          // };
 
           pcRef.current = pc;
           dcRef.current = dc;
