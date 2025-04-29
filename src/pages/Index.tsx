@@ -4,7 +4,7 @@ import RecordButton from '../components/RecordButton';
 import MessageList, { Message } from '../components/MessageList';
 import AudioWaveform from '../components/AudioWaveform';
 import IntroPage from '../components/IntroPage';
-import { initializeLocalRealtimeSession, initializeRealtimeSession } from '../utils/api';
+import { initializeLocalRealtimeSession, initializeRealtimeSession, initializeWebSocket } from '../utils/api';
 import ChatHistorySidebar from '../components/ChatHistorySidebar';
 import { chatHistoryService } from '../services/ChatHistory';
 import { ChatSession } from '../services/ChatHistory';
@@ -235,24 +235,23 @@ const Index = () => {
           // } else {
           //   ({ pc, dc, ws } = await initializeRealtimeSession(handleMessage));
           // }
-          ({ pc, dc, ws } = await initializeLocalRealtimeSession(handleMessage));
-
+          ({ ws } = await initializeWebSocket());
 
           // Set up connection state handling
-          pc.onconnectionstatechange = () => {
-            console.log('Connection state:', pc.connectionState);
-            if (pc.connectionState === 'disconnected' ||
-              pc.connectionState === 'failed' ||
-              pc.connectionState === 'closed') {
-              cleanupConnection();
-            }
-          };
+          // pc.onconnectionstatechange = () => {
+          //   console.log('Connection state:', pc.connectionState);
+          //   if (pc.connectionState === 'disconnected' ||
+          //     pc.connectionState === 'failed' ||
+          //     pc.connectionState === 'closed') {
+          //     cleanupConnection();
+          //   }
+          // };
 
-          // Set up data channel handling
-          dc.onclose = () => {
-            console.log('Data channel closed');
-            cleanupConnection();
-          };
+          // // Set up data channel handling
+          // dc.onclose = () => {
+          //   console.log('Data channel closed');
+          //   cleanupConnection();
+          // };
 
           // Log data channel state changes
           // dc.onopen = () => {
@@ -268,8 +267,8 @@ const Index = () => {
           //   dc.send(JSON.stringify(response));
           // };
 
-          pcRef.current = pc;
-          dcRef.current = dc;
+          // pcRef.current = pc;
+          // dcRef.current = dc;
           wsRef.current = ws;
           setIsCallActive(true);
           setIsRecording(true);

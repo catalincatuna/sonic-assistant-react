@@ -1,4 +1,6 @@
 import { getCurrentSessionId, getSession } from "../services/RestCalls";
+import fs from "fs";
+import decodeAudio from "audio-decode";
 
 // const API_BASE_URL = "http://192.168.1.131:3000";
 const API_BASE_URL = "http://localhost:3000";
@@ -304,6 +306,123 @@ export const initializeLocalRealtimeSession = async (
     };
   } catch (error) {
     console.error("Error initializing local realtime session:", error);
+    throw error;
+  }
+};
+
+// Converts Float32Array of audio data to PCM16 ArrayBuffer
+function floatTo16BitPCM(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buffer);
+  let offset = 0;
+  for (let i = 0; i < float32Array.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
+// Converts a Float32Array to base64-encoded PCM16 data
+function base64EncodeAudio(float32Array) {
+  const arrayBuffer = floatTo16BitPCM(float32Array);
+  let binary = "";
+  let bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000; // 32KB chunk size
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    let chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+// Function to initialize realtime session with local server
+export const initializeWebSocket = async (
+  onMessage?: (event: MessageEvent) => void
+) => {
+  try {
+    // Set up to play remote audio from the model
+    const audioEl = document.createElement("audio");
+    audioEl.autoplay = true;
+    document.body.appendChild(audioEl); // Add to document for testing
+
+    // Create WebSocket connection
+    const ws = new WebSocket("ws://localhost:3000");
+
+    // Wait for WebSocket to open
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => {
+        console.log("WebSocket connected to server");
+        resolve();
+      };
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+        reject(error);
+      };
+    });
+
+    ws.onmessage = async (event) => {
+      console.log("Raw WebSocket message received:", event.data);
+
+      const data = JSON.parse(event.data);
+      console.log("Parsed data:", data);
+
+      // Check if the message is an audio file (WAV)
+      if (data.type === "audio") {
+        try {
+          console.log("Audio data received:", data.data);
+
+          // Check if data is already a Blob
+          if (data.data instanceof Blob) {
+            const audioUrl = URL.createObjectURL(data.data);
+            audioEl.src = audioUrl;
+          } else {
+            // Try to handle as base64
+            let base64Data = data.data;
+            if (typeof base64Data === "string") {
+              // Remove data URL prefix if present
+              if (base64Data.includes(",")) {
+                base64Data = base64Data.split(",")[1];
+              }
+
+              // Ensure the string is valid base64
+              if (!/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
+                throw new Error("Invalid base64 string received");
+              }
+
+              const binaryData = atob(base64Data);
+              const arrayBuffer = new ArrayBuffer(binaryData.length);
+              const uint8Array = new Uint8Array(arrayBuffer);
+
+              for (let i = 0; i < binaryData.length; i++) {
+                uint8Array[i] = binaryData.charCodeAt(i);
+              }
+
+              const audioBlob = new Blob([arrayBuffer], { type: "audio/wav" });
+              const audioUrl = URL.createObjectURL(audioBlob);
+              audioEl.src = audioUrl;
+            } else {
+              throw new Error("Unsupported audio data format");
+            }
+          }
+
+          // Play the audio
+          await audioEl.play();
+          console.log("Playing audio file");
+        } catch (error) {
+          console.error("Error processing audio:", error);
+          console.error("Audio data type:", typeof data.data);
+          console.error("Audio data structure:", data.data);
+        }
+      } else {
+        // Handle non-audio messages
+        console.log("Non-audio message received:", data);
+      }
+    };
+    // Set up message handler
+
+    return { ws };
+  } catch (error) {
+    console.error("Error initializing WebSocket:", error);
     throw error;
   }
 };
